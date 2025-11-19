@@ -1,9 +1,12 @@
-name: Deploy Angular App to GitHub Pages
+name: Deploy to GitHub Pages with Coverage Validation
 
-# Auto-deploy on push to main branch + manual trigger support
+# Workflow is DISABLED by default - push trigger is commented out
+# on:
+#   push:
+#     branches: ["main"]
+
+# Only manual trigger is active
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -11,31 +14,58 @@ permissions:
   pages: write
   id-token: write
 
-# Cancel in-progress deployment runs for the same workflow
+# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
+# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
 concurrency:
-  group: github-pages
-  cancel-in-progress: true
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-  test-and-deploy:
+  # Build and test job
+  build-and-test:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     
     steps:
-      # Step 1: Checkout repository
       - name: Checkout repository
         uses: actions/checkout@v4
-      
-      # Step 2: Setup Node.js (latest LTS)
-      - name: Setup Node.js
+
+      - name: Detect framework and project configuration
+        id: detect-framework
+        run: |
+          if [ -f "angular.json" ]; then
+            echo "framework=angular" >> $GITHUB_OUTPUT
+            # Extract project name from angular.json
+            PROJECT_NAME=$(node -p "JSON.parse(require('fs').readFileSync('angular.json', 'utf8')).projects ? Object.keys(JSON.parse(require('fs').readFileSync('angular.json', 'utf8')).projects)[0] : 'app'")
+            echo "project-name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+            echo "build-dir=dist/$PROJECT_NAME" >> $GITHUB_OUTPUT
+            echo "build-command=npm run build -- --base-href '/${{ github.event.repository.name }}/'" >> $GITHUB_OUTPUT
+          elif [ -f "src/App.tsx" ] || [ -f "src/App.jsx" ]; then
+            echo "framework=react" >> $GITHUB_OUTPUT
+            echo "project-name=${{ github.event.repository.name }}" >> $GITHUB_OUTPUT
+            echo "build-dir=build" >> $GITHUB_OUTPUT
+            echo "build-command=npm run build" >> $GITHUB_OUTPUT
+          elif [ -f "src/App.vue" ]; then
+            echo "framework=vue" >> $GITHUB_OUTPUT
+            echo "project-name=${{ github.event.repository.name }}" >> $GITHUB_OUTPUT
+            if [ -f "vite.config.js" ] || [ -f "vite.config.ts" ]; then
+              echo "build-dir=dist" >> $GITHUB_OUTPUT
+            else
+              echo "build-dir=build" >> $GITHUB_OUTPUT
+            fi
+            echo "build-command=npm run build" >> $GITHUB_OUTPUT
+          else
+            echo "framework=unknown" >> $GITHUB_OUTPUT
+            echo "project-name=${{ github.event.repository.name }}" >> $GITHUB_OUTPUT
+            echo "build-dir=dist" >> $GITHUB_OUTPUT
+            echo "build-command=npm run build" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js (Latest LTS)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-      
-      # Step 3: Cache node_modules
+          cache: 'npm'
+
       - name: Cache node_modules
         uses: actions/cache@v4
         with:
@@ -43,86 +73,99 @@ jobs:
           key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
-      
-      # Step 4: Install dependencies
+
       - name: Install dependencies
-        run: npm install
-      
-      # Step 5: Run Jest tests and check coverage ≥ 80%
-      - name: Run tests with coverage validation
+        run: npm ci
+
+      - name: Run Jest tests with coverage validation
         run: |
           echo "Running Jest tests with coverage..."
           npm run test -- --coverage --watchAll=false --passWithNoTests
           
           # Check if coverage summary exists
-          if [ ! -f coverage/coverage-summary.json ]; then
-            echo "❌ Coverage summary file not found!"
+          if [ ! -f "coverage/coverage-summary.json" ]; then
+            echo "❌ Coverage summary not found. Tests may have failed."
             exit 1
           fi
           
           # Parse coverage and validate ≥ 80%
-          TOTAL_COVERAGE=$(node -e "
+          echo "Parsing coverage results..."
+          COVERAGE=$(node -p "
             const fs = require('fs');
             try {
               const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
               const total = coverage.total;
-              const linesPct = total.lines.pct || 0;
-              const statementsPct = total.statements.pct || 0;
-              const functionsPct = total.functions.pct || 0;
-              const branchesPct = total.branches.pct || 0;
+              const statements = total.statements.pct;
+              const branches = total.branches.pct;
+              const functions = total.functions.pct;
+              const lines = total.lines.pct;
+              const overall = Math.round((statements + branches + functions + lines) / 4);
               
-              const avgCoverage = (linesPct + statementsPct + functionsPct + branchesPct) / 4;
-              console.log('Coverage Summary:');
-              console.log('  Lines: ' + linesPct + '%');
-              console.log('  Statements: ' + statementsPct + '%');
-              console.log('  Functions: ' + functionsPct + '%');
-              console.log('  Branches: ' + branchesPct + '%');
-              console.log('  Total Average: ' + avgCoverage.toFixed(2) + '%');
+              console.log('📊 Coverage Summary:');
+              console.log('  Statements: ' + statements + '%');
+              console.log('  Branches: ' + branches + '%');
+              console.log('  Functions: ' + functions + '%');
+              console.log('  Lines: ' + lines + '%');
+              console.log('  Overall: ' + overall + '%');
               
-              if (avgCoverage < 80) {
-                console.log('❌ Coverage (' + avgCoverage.toFixed(2) + '%) is below 80% threshold!');
-                process.exit(1);
-              } else {
-                console.log('✅ Coverage (' + avgCoverage.toFixed(2) + '%) meets 80% threshold!');
-              }
-            } catch (error) {
-              console.log('❌ Error reading coverage data:', error.message);
-              process.exit(1);
+              overall;
+            } catch (e) {
+              console.log('Error parsing coverage:', e.message);
+              0;
             }
           ")
           
-          echo "Coverage validation completed successfully!"
-      
-      # Step 6: Build Angular project
-      - name: Build Angular project
+          echo "Overall coverage: ${COVERAGE}%"
+          
+          if [ "$COVERAGE" -lt "80" ]; then
+            echo "❌ Coverage validation failed! Overall coverage ($COVERAGE%) is below the required 80% threshold."
+            echo "Please improve test coverage before deploying."
+            exit 1
+          fi
+          
+          echo "✅ Coverage validation passed! Overall coverage: ${COVERAGE}%"
+
+      - name: Build project
         run: |
-          echo "Building Angular project for GitHub Pages..."
-          npm run build -- --base-href '/prompt3/'
-      
-      # Step 7: Copy index.html to 404.html (fix SPA routing)
-      - name: Fix SPA routing for GitHub Pages
+          echo "Building ${{ steps.detect-framework.outputs.framework }} project..."
+          ${{ steps.detect-framework.outputs.build-command }}
+
+      - name: Copy index.html to 404.html (SPA routing fix)
         run: |
-          echo "Copying index.html to 404.html for SPA routing..."
-          cp dist/prompt3/index.html dist/prompt3/404.html
-      
-      # Step 8: Configure GitHub Pages
-      - name: Configure GitHub Pages
+          BUILD_DIR="${{ steps.detect-framework.outputs.build-dir }}"
+          if [ -f "$BUILD_DIR/index.html" ]; then
+            cp "$BUILD_DIR/index.html" "$BUILD_DIR/404.html"
+            echo "✅ Copied index.html to 404.html for SPA routing support"
+          else
+            echo "⚠️ index.html not found in $BUILD_DIR"
+          fi
+
+      - name: Setup GitHub Pages
         uses: actions/configure-pages@v4
-      
-      # Step 9: Upload artifact (build output)
-      - name: Upload GitHub Pages artifact
+
+      - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./dist/prompt3
-      
-      # Step 10: Deploy to GitHub Pages
+          path: ${{ steps.detect-framework.outputs.build-dir }}
+
+  # Deployment job
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-      
-      # Print deployed URL
+
       - name: Print deployment URL
         run: |
-          echo "🚀 Successfully deployed to GitHub Pages!"
-          echo "📱 Your Angular app is now live at: ${{ steps.deployment.outputs.page_url }}"
-          echo "🔗 Direct URL: https://aishwaryakulkarni1801.github.io/prompt3/"
+          echo "🚀 Deployment completed successfully!"
+          echo "📍 Your application is now live at: ${{ steps.deployment.outputs.page_url }}"
+          echo ""
+          echo "🔗 Direct link: ${{ steps.deployment.outputs.page_url }}"
+          echo ""
+          echo "ℹ️  Note: It may take a few minutes for the changes to be visible."
