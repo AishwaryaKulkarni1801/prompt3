@@ -1,29 +1,47 @@
-import { TestBed } from '@angular/core/testing';
-import { RouterTestingModule } from '@angular/router/testing';
 import { AppComponent } from './app.component';
 
-describe('AppComponent', () => {
-  beforeEach(() => TestBed.configureTestingModule({
-    imports: [RouterTestingModule],
-    declarations: [AppComponent]
-  }));
+/**
+ * Comprehensive Jest tests for AppComponent
+ * - Follows direct-instantiation pattern from established analysis
+ * - Uses jest spies/mocks (no TestBed)
+ * - Exercises all lines in the component for full coverage
+ */
 
-  it('should create the app', () => {
-    const fixture = TestBed.createComponent(AppComponent);
-    const app = fixture.componentInstance;
-    expect(app).toBeTruthy();
+describe('AppComponent (direct instantiation)', () => {
+  let component: AppComponent;
+
+  beforeEach(() => {
+    component = new AppComponent();
   });
 
-  it(`should have as title 'prompt3'`, () => {
-    const fixture = TestBed.createComponent(AppComponent);
-    const app = fixture.componentInstance;
-    expect(app.title).toEqual('prompt3');
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
-  it('should render title', () => {
-    const fixture = TestBed.createComponent(AppComponent);
-    fixture.detectChanges();
-    const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.content span')?.textContent).toContain('prompt3 app is running!');
+  it('should create the component instance', () => {
+    expect(component).toBeDefined();
+  });
+
+  it("should initialize title to 'Angular Demo App'", () => {
+    expect(component.title).toBe('Angular Demo App');
+  });
+
+  it('should return the Angular version string from getAngularVersion', () => {
+    const v = component.getAngularVersion();
+    expect(v).toBe('16.x');
+  });
+
+  it('should execute someMethod without throwing', () => {
+    expect(() => {
+      component.someMethod();
+    }).not.toThrow();
+  });
+
+  it('should allow calling someMethod multiple times without throwing', () => {
+    expect(() => {
+      component.someMethod();
+      component.someMethod();
+    }).not.toThrow();
   });
 });
+

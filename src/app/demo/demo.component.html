@@ -1,0 +1,61 @@
+<div class="demo-container">
+  <div class="demo-header">
+    <h1>{{ title }}</h1>
+    <p>{{ message }}</p>
+    <p class="current-time">Current time: {{ getCurrentTime() }}</p>
+  </div>
+
+  <div class="demo-section">
+    <h2>Counter Demo</h2>
+    <div class="counter-section">
+      <div class="counter-display">
+        <span class="counter-value">{{ counter }}</span>
+      </div>
+      <div class="counter-buttons">
+        <button class="btn btn-primary" (click)="increment()">+</button>
+        <button class="btn btn-secondary" (click)="reset()">Reset</button>
+        <button class="btn btn-primary" (click)="decrement()">-</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="demo-section">
+    <h2>Dynamic List Demo</h2>
+    <div class="list-input">
+      <input 
+        type="text" 
+        [(ngModel)]="newItem" 
+        placeholder="Enter new item..." 
+        class="input-field"
+        (keyup.enter)="addItem()"
+      >
+      <button class="btn btn-success" (click)="addItem()">Add Item</button>
+    </div>
+    
+    <ul class="items-list" *ngIf="items.length > 0">
+      <li *ngFor="let item of items; let i = index" class="list-item">
+        <span>{{ item }}</span>
+        <button class="btn btn-danger btn-small" (click)="removeItem(i)">Remove</button>
+      </li>
+    </ul>
+    
+    <p *ngIf="items.length === 0" class="no-items">No items in the list.</p>
+  </div>
+
+  <div class="demo-section">
+    <h2>Toggle Demo</h2>
+    <button class="btn btn-info" (click)="toggleDetails()">
+      {{ showDetails ? 'Hide' : 'Show' }} Details
+    </button>
+    
+    <div *ngIf="showDetails" class="details-panel">
+      <h3>Component Details</h3>
+      <ul>
+        <li>Component Name: {{ title }}</li>
+        <li>Counter Value: {{ counter }}</li>
+        <li>Total Items: {{ items.length }}</li>
+        <li>Details Visible: {{ showDetails }}</li>
+      </ul>
+    </div>
+  </div>
+</div>

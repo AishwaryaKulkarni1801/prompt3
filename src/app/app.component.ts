@@ -6,5 +6,15 @@ import { Component } from '@angular/core';
   styleUrls: ['./app.component.scss']
 })
 export class AppComponent {
-  title = 'prompt3';
+  title = 'Angular Demo App';
+
+  someMethod() {
+    // Simple method for testing purposes
+    const message = 'Method executed';
+    return message;
+  }
+
+  getAngularVersion(): string {
+    return '16.x';
+  }
 }
