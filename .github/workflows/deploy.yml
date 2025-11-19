@@ -1,0 +1,129 @@
+name: Deploy Angular App to GitHub Pages
+
+# Workflow is DISABLED by default - use workflow_dispatch to run manually
+# on:
+#   push:
+#     branches: [ main ]
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Cancel in-progress deployment runs for the same workflow
+concurrency:
+  group: github-pages
+  cancel-in-progress: true
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    
+    steps:
+      # Step 1: Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      # Step 2: Setup Node.js (latest LTS)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      
+      # Step 3: Cache node_modules
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+      
+      # Step 4: Install dependencies
+      - name: Install dependencies
+        run: npm install
+      
+      # Step 5: Run Jest tests and check coverage ≥ 80%
+      - name: Run tests with coverage validation
+        run: |
+          echo "Running Jest tests with coverage..."
+          npm run test -- --coverage --watchAll=false --passWithNoTests
+          
+          # Check if coverage summary exists
+          if [ ! -f coverage/coverage-summary.json ]; then
+            echo "❌ Coverage summary file not found!"
+            exit 1
+          fi
+          
+          # Parse coverage and validate ≥ 80%
+          TOTAL_COVERAGE=$(node -e "
+            const fs = require('fs');
+            try {
+              const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+              const total = coverage.total;
+              const linesPct = total.lines.pct || 0;
+              const statementsPct = total.statements.pct || 0;
+              const functionsPct = total.functions.pct || 0;
+              const branchesPct = total.branches.pct || 0;
+              
+              const avgCoverage = (linesPct + statementsPct + functionsPct + branchesPct) / 4;
+              console.log('Coverage Summary:');
+              console.log('  Lines: ' + linesPct + '%');
+              console.log('  Statements: ' + statementsPct + '%');
+              console.log('  Functions: ' + functionsPct + '%');
+              console.log('  Branches: ' + branchesPct + '%');
+              console.log('  Total Average: ' + avgCoverage.toFixed(2) + '%');
+              
+              if (avgCoverage < 80) {
+                console.log('❌ Coverage (' + avgCoverage.toFixed(2) + '%) is below 80% threshold!');
+                process.exit(1);
+              } else {
+                console.log('✅ Coverage (' + avgCoverage.toFixed(2) + '%) meets 80% threshold!');
+              }
+            } catch (error) {
+              console.log('❌ Error reading coverage data:', error.message);
+              process.exit(1);
+            }
+          ")
+          
+          echo "Coverage validation completed successfully!"
+      
+      # Step 6: Build Angular project
+      - name: Build Angular project
+        run: |
+          echo "Building Angular project for GitHub Pages..."
+          npm run build -- --base-href '/prompt3/'
+      
+      # Step 7: Copy index.html to 404.html (fix SPA routing)
+      - name: Fix SPA routing for GitHub Pages
+        run: |
+          echo "Copying index.html to 404.html for SPA routing..."
+          cp dist/prompt3/index.html dist/prompt3/404.html
+      
+      # Step 8: Configure GitHub Pages
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v4
+      
+      # Step 9: Upload artifact (build output)
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./dist/prompt3
+      
+      # Step 10: Deploy to GitHub Pages
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+      
+      # Print deployed URL
+      - name: Print deployment URL
+        run: |
+          echo "🚀 Successfully deployed to GitHub Pages!"
+          echo "📱 Your Angular app is now live at: ${{ steps.deployment.outputs.page_url }}"
+          echo "🔗 Direct URL: https://aishwaryakulkarni1801.github.io/prompt3/"
